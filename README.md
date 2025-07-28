@@ -60,14 +60,29 @@ A proxy server that translates OpenAI API calls to use Replicate's SDK instead. 
    docker-compose up -d
    ```
 
+   **Option D: Cloudflare Worker (Serverless)**
+   ```bash
+   # Navigate to worker directory
+   cd worker
+   
+   # Install dependencies and deploy
+   npm install
+   wrangler login
+   wrangler secret put REPLICATE_API_TOKEN
+   wrangler secret put PROXY_API_KEY
+   npm run deploy:production
+   ```
+
 ## Usage
 
 The proxy runs on `http://localhost:3000` by default. You can use any OpenAI-compatible client by pointing it to your proxy server.
 
 ### Example with curl
 
+#### Basic Chat Completions
+
 ```bash
-# Chat completions
+# Simple chat completion
 curl -X POST http://localhost:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your_proxy_api_key_here" \
@@ -79,18 +94,118 @@ curl -X POST http://localhost:3000/v1/chat/completions \
     "max_tokens": 100
   }'
 
-# Legacy completions
+# Multi-turn conversation
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_proxy_api_key_here" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "What is the capital of France?"},
+      {"role": "assistant", "content": "The capital of France is Paris."},
+      {"role": "user", "content": "What is its population?"}
+    ],
+    "max_tokens": 150,
+    "temperature": 0.7
+  }'
+
+# Chat completion with streaming
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_proxy_api_key_here" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [
+      {"role": "user", "content": "Write a short story about a robot."}
+    ],
+    "max_tokens": 200,
+    "stream": true
+  }'
+```
+
+#### Legacy Completions
+
+```bash
+# Simple completion
 curl -X POST http://localhost:3000/v1/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your_proxy_api_key_here" \
   -d '{
     "model": "text-davinci-003",
-    "prompt": "Hello, how are you?",
-    "max_tokens": 100
+    "prompt": "The future of AI is",
+    "max_tokens": 100,
+    "temperature": 0.8
   }'
 
-# List available models
-curl http://localhost:3000/v1/models
+# Completion with custom parameters
+curl -X POST http://localhost:3000/v1/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_proxy_api_key_here" \
+  -d '{
+    "model": "text-davinci-002",
+    "prompt": "Explain quantum computing in simple terms:",
+    "max_tokens": 200,
+    "temperature": 0.5,
+    "top_p": 0.9,
+    "frequency_penalty": 0.1
+  }'
+```
+
+#### Model Information
+
+```bash
+# List all available models
+curl http://localhost:3000/v1/models \
+  -H "Authorization: Bearer your_proxy_api_key_here"
+
+# Get specific model information
+curl http://localhost:3000/v1/models/gpt-3.5-turbo \
+  -H "Authorization: Bearer your_proxy_api_key_here"
+```
+
+#### Testing Different Deployment Options
+
+```bash
+# Local development server
+export PROXY_URL="http://localhost:3000"
+
+# Docker deployment
+export PROXY_URL="http://localhost:3000"
+
+# Cloudflare Worker deployment
+export PROXY_URL="https://your-worker.your-subdomain.workers.dev"
+
+# Test any deployment
+curl -X POST $PROXY_URL/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_proxy_api_key_here" \
+  -d '{
+    "model": "gpt-3.5-turbo",
+    "messages": [{"role": "user", "content": "Test message"}],
+    "max_tokens": 50
+  }'
+```
+
+#### Error Testing
+
+```bash
+# Test without authentication (should return 401)
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "test"}]}'
+
+# Test with invalid model (should return 400)
+curl -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_proxy_api_key_here" \
+  -d '{
+    "model": "invalid-model",
+    "messages": [{"role": "user", "content": "test"}]
+  }'
+
+# Test health endpoint
+curl http://localhost:3000/health
 ```
 
 ### Example with OpenAI Python client
@@ -167,7 +282,14 @@ Environment variables:
 - `PROXY_API_KEY` - API key for proxy authentication (required, generate with `openssl rand -hex 32`)
 - `PORT` - Server port (optional, defaults to 3000)
 
-## Docker Deployment
+## Deployment Options
+
+The proxy supports multiple deployment methods to suit different needs:
+
+### 1. Local Development
+Run directly on your machine for development and testing.
+
+### 2. Docker Deployment
 
 The proxy includes Docker support for easy containerization and deployment.
 
@@ -202,6 +324,28 @@ docker-compose logs -f
 # Stop the service
 docker-compose down
 ```
+
+### 3. Cloudflare Worker (Serverless)
+
+For serverless deployment with global edge distribution, see the `worker/` directory.
+
+**Features:**
+- **Global Distribution**: Deployed to 300+ locations worldwide
+- **Auto-scaling**: Handles traffic spikes automatically
+- **Zero Cold Starts**: Instant execution with V8 isolates
+- **Cost Effective**: Pay only for what you use
+
+**Quick Deploy:**
+```bash
+cd worker
+npm install
+wrangler login
+wrangler secret put REPLICATE_API_TOKEN
+wrangler secret put PROXY_API_KEY
+npm run deploy:production
+```
+
+See `worker/README.md` for detailed instructions.
 
 ## Notes
 
