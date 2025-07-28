@@ -64,8 +64,13 @@ function formatAsOpenAIResponse(replicateOutput, model, usage = {}) {
 function authenticateApiKey(request, env) {
     const authHeader = request.headers.get('authorization');
     const expectedApiKey = env.PROXY_API_KEY;
+    const clientIP = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown';
 
     if (!expectedApiKey) {
+        console.error('Authentication error: Proxy API key not configured', {
+            timestamp: new Date().toISOString(),
+            clientIP
+        });
         return {
             success: false,
             error: {
@@ -78,6 +83,11 @@ function authenticateApiKey(request, env) {
     }
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        console.warn('Authentication failed: Missing or invalid authorization header', {
+            authHeader: authHeader ? 'present but invalid format' : 'missing',
+            clientIP,
+            timestamp: new Date().toISOString()
+        });
         return {
             success: false,
             error: {
@@ -92,6 +102,11 @@ function authenticateApiKey(request, env) {
     const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     if (apiKey !== expectedApiKey) {
+        console.warn('Authentication failed: Invalid API key', {
+            providedKeyLength: apiKey.length,
+            clientIP,
+            timestamp: new Date().toISOString()
+        });
         return {
             success: false,
             error: {
@@ -103,46 +118,127 @@ function authenticateApiKey(request, env) {
         };
     }
 
+    console.log('Authentication successful', {
+        clientIP,
+        timestamp: new Date().toISOString()
+    });
     return { success: true };
 }
 
 // Helper function to call Replicate API
-async function callReplicateAPI(model, input, env) {
-    const response = await fetch('https://api.replicate.com/v1/predictions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Token ${env.REPLICATE_API_TOKEN}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            version: await getModelVersion(model, env),
-            input: input
-        })
-    });
+async function callReplicateAPI(model, input, env, requestId = 'unknown') {
+    const startTime = Date.now();
 
-    if (!response.ok) {
-        throw new Error(`Replicate API error: ${response.status}`);
-    }
-
-    const prediction = await response.json();
-
-    // Poll for completion
-    let result = prediction;
-    while (result.status === 'starting' || result.status === 'processing') {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const pollResponse = await fetch(`https://api.replicate.com/v1/predictions/${result.id}`, {
-            headers: {
-                'Authorization': `Token ${env.REPLICATE_API_TOKEN}`
-            }
+    try {
+        console.log('Replicate API call started:', {
+            requestId,
+            model,
+            inputKeys: Object.keys(input),
+            timestamp: new Date().toISOString()
         });
-        result = await pollResponse.json();
-    }
 
-    if (result.status === 'failed') {
-        throw new Error(`Replicate prediction failed: ${result.error}`);
-    }
+        const response = await fetch('https://api.replicate.com/v1/predictions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Token ${env.REPLICATE_API_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                version: await getModelVersion(model, env),
+                input: input
+            })
+        });
 
-    return result.output;
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Replicate API request failed:', {
+                requestId,
+                status: response.status,
+                statusText: response.statusText,
+                error: errorText,
+                timestamp: new Date().toISOString()
+            });
+            throw new Error(`Replicate API error: ${response.status} - ${errorText}`);
+        }
+
+        const prediction = await response.json();
+        console.log('Replicate prediction created:', {
+            requestId,
+            predictionId: prediction.id,
+            status: prediction.status,
+            timestamp: new Date().toISOString()
+        });
+
+        // Poll for completion
+        let result = prediction;
+        let pollCount = 0;
+        while (result.status === 'starting' || result.status === 'processing') {
+            pollCount++;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const pollResponse = await fetch(`https://api.replicate.com/v1/predictions/${result.id}`, {
+                headers: {
+                    'Authorization': `Token ${env.REPLICATE_API_TOKEN}`
+                }
+            });
+
+            if (!pollResponse.ok) {
+                console.error('Replicate polling failed:', {
+                    requestId,
+                    predictionId: result.id,
+                    pollCount,
+                    status: pollResponse.status,
+                    timestamp: new Date().toISOString()
+                });
+                throw new Error(`Replicate polling error: ${pollResponse.status}`);
+            }
+
+            result = await pollResponse.json();
+
+            if (pollCount % 5 === 0) { // Log every 5th poll
+                console.log('Replicate prediction polling:', {
+                    requestId,
+                    predictionId: result.id,
+                    status: result.status,
+                    pollCount,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        }
+
+        if (result.status === 'failed') {
+            console.error('Replicate prediction failed:', {
+                requestId,
+                predictionId: result.id,
+                error: result.error,
+                processingTime: Date.now() - startTime,
+                timestamp: new Date().toISOString()
+            });
+            throw new Error(`Replicate prediction failed: ${result.error}`);
+        }
+
+        console.log('Replicate API call completed successfully:', {
+            requestId,
+            predictionId: result.id,
+            status: result.status,
+            processingTime: Date.now() - startTime,
+            pollCount,
+            outputLength: Array.isArray(result.output) ? result.output.length : (result.output ? result.output.toString().length : 0),
+            timestamp: new Date().toISOString()
+        });
+
+        return result.output;
+
+    } catch (error) {
+        console.error('Replicate API call error:', {
+            requestId,
+            model,
+            error: error.message,
+            processingTime: Date.now() - startTime,
+            timestamp: new Date().toISOString()
+        });
+        throw error;
+    }
 }
 
 // Helper function to get model version (simplified - in production you'd cache these)
@@ -159,9 +255,42 @@ async function getModelVersion(model, env) {
 
 // Chat completions handler
 async function handleChatCompletions(request, env) {
+    const requestId = `req-${Date.now()}-${Math.random().toString(36)}`;
+    const clientIP = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown';
+
     try {
+        console.log('Chat completions request started:', {
+            requestId,
+            clientIP,
+            timestamp: new Date().toISOString()
+        });
+
         const body = await request.json();
         const { model, messages, max_tokens = 500, temperature = 0.7, stream = false } = body;
+
+        // Validate required fields
+        if (!model || !messages) {
+            console.warn('Chat completions validation error:', {
+                requestId,
+                error: 'Missing required fields',
+                hasModel: !!model,
+                hasMessages: !!messages,
+                timestamp: new Date().toISOString()
+            });
+            return new Response(JSON.stringify({
+                error: {
+                    message: 'Missing required fields: model and messages are required',
+                    type: 'invalid_request_error',
+                    code: 'missing_required_fields'
+                }
+            }), {
+                status: 400,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        }
 
         // Map OpenAI model to Replicate model
         const replicateModel = MODEL_MAPPINGS[model] || DEFAULT_MODEL;
@@ -169,7 +298,19 @@ async function handleChatCompletions(request, env) {
         // Convert messages to prompt format
         const prompt = convertMessagesToPrompt(messages);
 
-        console.log(`Using Replicate model: ${replicateModel}`);
+        console.log('Chat completions processing:', {
+            requestId,
+            model,
+            replicateModel,
+            messageCount: messages.length,
+            maxTokens: max_tokens,
+            temperature,
+            stream,
+            promptLength: prompt.length,
+            timestamp: new Date().toISOString()
+        });
+
+        const startTime = Date.now();
 
         const input = {
             prompt: prompt,
@@ -179,7 +320,8 @@ async function handleChatCompletions(request, env) {
 
         if (stream) {
             // For streaming, we'll simulate it since Cloudflare Workers have limitations
-            const output = await callReplicateAPI(replicateModel, input, env);
+            console.log('Starting streaming response:', { requestId });
+            const output = await callReplicateAPI(replicateModel, input, env, requestId);
             const content = Array.isArray(output) ? output.join('') : output;
 
             const streamResponse = {
@@ -197,6 +339,13 @@ async function handleChatCompletions(request, env) {
                 }]
             };
 
+            console.log('Chat completions streaming completed:', {
+                requestId,
+                responseLength: content.length,
+                processingTime: Date.now() - startTime,
+                timestamp: new Date().toISOString()
+            });
+
             return new Response(`data: ${JSON.stringify(streamResponse)}\n\ndata: [DONE]\n\n`, {
                 headers: {
                     'Content-Type': 'text/event-stream',
@@ -207,8 +356,15 @@ async function handleChatCompletions(request, env) {
             });
         } else {
             // Handle regular response
-            const output = await callReplicateAPI(replicateModel, input, env);
+            const output = await callReplicateAPI(replicateModel, input, env, requestId);
             const response = formatAsOpenAIResponse(output, model);
+
+            console.log('Chat completions completed successfully:', {
+                requestId,
+                responseLength: response.choices[0]?.message?.content?.length || 0,
+                processingTime: Date.now() - startTime,
+                timestamp: new Date().toISOString()
+            });
 
             return new Response(JSON.stringify(response), {
                 headers: {
@@ -219,33 +375,100 @@ async function handleChatCompletions(request, env) {
         }
 
     } catch (error) {
-        console.error('Error calling Replicate:', error);
-        return new Response(JSON.stringify({
-            error: {
-                message: 'Internal server error',
-                type: 'server_error',
-                code: 'internal_error'
-            }
-        }), {
-            status: 500,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            }
+        console.error('Chat completions error:', {
+            requestId,
+            error: error.message,
+            stack: error.stack,
+            clientIP,
+            timestamp: new Date().toISOString()
         });
+
+        // Check if it's a Replicate API error
+        if (error.message && error.message.includes('Replicate')) {
+            return new Response(JSON.stringify({
+                error: {
+                    message: 'Replicate API error',
+                    type: 'upstream_error',
+                    code: 'replicate_error'
+                }
+            }), {
+                status: 502,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        } else {
+            return new Response(JSON.stringify({
+                error: {
+                    message: 'Internal server error',
+                    type: 'server_error',
+                    code: 'internal_error'
+                }
+            }), {
+                status: 500,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        }
     }
 }
 
 // Completions handler (legacy)
 async function handleCompletions(request, env) {
+    const requestId = `req-${Date.now()}-${Math.random().toString(36)}`;
+    const clientIP = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown';
+
     try {
+        console.log('Completions request started:', {
+            requestId,
+            clientIP,
+            timestamp: new Date().toISOString()
+        });
+
         const body = await request.json();
         const { model, prompt, max_tokens = 500, temperature = 0.7 } = body;
+
+        // Validate required fields
+        if (!model || !prompt) {
+            console.warn('Completions validation error:', {
+                requestId,
+                error: 'Missing required fields',
+                hasModel: !!model,
+                hasPrompt: !!prompt,
+                timestamp: new Date().toISOString()
+            });
+            return new Response(JSON.stringify({
+                error: {
+                    message: 'Missing required fields: model and prompt are required',
+                    type: 'invalid_request_error',
+                    code: 'missing_required_fields'
+                }
+            }), {
+                status: 400,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        }
 
         // Map OpenAI model to Replicate model
         const replicateModel = MODEL_MAPPINGS[model] || DEFAULT_MODEL;
 
-        console.log(`Using Replicate model: ${replicateModel}`);
+        console.log('Completions processing:', {
+            requestId,
+            model,
+            replicateModel,
+            promptLength: prompt.length,
+            maxTokens: max_tokens,
+            temperature,
+            timestamp: new Date().toISOString()
+        });
+
+        const startTime = Date.now();
 
         const input = {
             prompt: prompt,
@@ -253,7 +476,7 @@ async function handleCompletions(request, env) {
             temperature: temperature
         };
 
-        const output = await callReplicateAPI(replicateModel, input, env);
+        const output = await callReplicateAPI(replicateModel, input, env, requestId);
         const content = Array.isArray(output) ? output.join('') : output;
 
         const response = {
@@ -273,6 +496,13 @@ async function handleCompletions(request, env) {
             }
         };
 
+        console.log('Completions completed successfully:', {
+            requestId,
+            responseLength: content.length,
+            processingTime: Date.now() - startTime,
+            timestamp: new Date().toISOString()
+        });
+
         return new Response(JSON.stringify(response), {
             headers: {
                 'Content-Type': 'application/json',
@@ -281,20 +511,44 @@ async function handleCompletions(request, env) {
         });
 
     } catch (error) {
-        console.error('Error calling Replicate:', error);
-        return new Response(JSON.stringify({
-            error: {
-                message: 'Internal server error',
-                type: 'server_error',
-                code: 'internal_error'
-            }
-        }), {
-            status: 500,
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
-            }
+        console.error('Completions error:', {
+            requestId,
+            error: error.message,
+            stack: error.stack,
+            clientIP,
+            timestamp: new Date().toISOString()
         });
+
+        // Check if it's a Replicate API error
+        if (error.message && error.message.includes('Replicate')) {
+            return new Response(JSON.stringify({
+                error: {
+                    message: 'Replicate API error',
+                    type: 'upstream_error',
+                    code: 'replicate_error'
+                }
+            }), {
+                status: 502,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        } else {
+            return new Response(JSON.stringify({
+                error: {
+                    message: 'Internal server error',
+                    type: 'server_error',
+                    code: 'internal_error'
+                }
+            }), {
+                status: 500,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            });
+        }
     }
 }
 
@@ -335,12 +589,28 @@ function handleHealth() {
 // Main worker handler
 export default {
     async fetch(request, env, ctx) {
+        const requestId = `req-${Date.now()}-${Math.random().toString(36)}`;
         const url = new URL(request.url);
         const pathname = url.pathname;
         const method = request.method;
+        const clientIP = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'unknown';
+        const userAgent = request.headers.get('user-agent') || 'unknown';
+        const country = request.cf?.country || 'unknown';
+
+        // Log all incoming requests
+        console.log('Incoming request:', {
+            requestId,
+            method,
+            pathname,
+            clientIP,
+            userAgent,
+            country,
+            timestamp: new Date().toISOString()
+        });
 
         // Handle CORS preflight requests
         if (method === 'OPTIONS') {
+            console.log('CORS preflight request:', { requestId, pathname });
             return new Response(null, {
                 headers: {
                     'Access-Control-Allow-Origin': '*',
@@ -352,6 +622,7 @@ export default {
 
         // Health check endpoint (no auth required)
         if (pathname === '/health' && method === 'GET') {
+            console.log('Health check request:', { requestId });
             return handleHealth();
         }
 
@@ -359,6 +630,13 @@ export default {
         if (pathname.startsWith('/v1/')) {
             const authResult = authenticateApiKey(request, env);
             if (!authResult.success) {
+                console.warn('Authentication failed for API endpoint:', {
+                    requestId,
+                    pathname,
+                    statusCode: authResult.statusCode,
+                    clientIP,
+                    timestamp: new Date().toISOString()
+                });
                 return new Response(JSON.stringify({ error: authResult.error }), {
                     status: authResult.statusCode,
                     headers: {
@@ -370,12 +648,22 @@ export default {
 
             // Route to appropriate handler
             if (pathname === '/v1/chat/completions' && method === 'POST') {
+                console.log('Routing to chat completions handler:', { requestId });
                 return handleChatCompletions(request, env);
             } else if (pathname === '/v1/completions' && method === 'POST') {
+                console.log('Routing to completions handler:', { requestId });
                 return handleCompletions(request, env);
             } else if (pathname === '/v1/models' && method === 'GET') {
+                console.log('Routing to models handler:', { requestId });
                 return handleModels();
             } else {
+                console.warn('Unknown API endpoint:', {
+                    requestId,
+                    pathname,
+                    method,
+                    clientIP,
+                    timestamp: new Date().toISOString()
+                });
                 return new Response(JSON.stringify({
                     error: {
                         message: 'Not found',
@@ -392,6 +680,13 @@ export default {
             }
         } else {
             // Unknown endpoint
+            console.warn('Request to unknown endpoint:', {
+                requestId,
+                pathname,
+                method,
+                clientIP,
+                timestamp: new Date().toISOString()
+            });
             return new Response(JSON.stringify({
                 error: {
                     message: 'Not found',

@@ -2,6 +2,7 @@
 
 This is a serverless implementation of the OpenAI to Replicate proxy using Cloudflare Workers. It provides the same functionality as the Node.js version but runs on Cloudflare's edge network for global distribution and automatic scaling.
 
+
 ## Setup
 
 ### Prerequisites
