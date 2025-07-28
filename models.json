@@ -1,0 +1,28 @@
+{
+  "mappings": {
+    "gpt-3.5-turbo": "meta/llama-2-7b-chat",
+    "gpt-3.5-turbo-16k": "meta/llama-2-7b-chat",
+    "gpt-4": "meta/llama-2-70b-chat",
+    "gpt-4-turbo": "meta/llama-2-70b-chat",
+    "gpt-4-turbo-preview": "meta/llama-2-70b-chat",
+    "gpt-4-32k": "meta/llama-2-70b-chat",
+    "text-davinci-003": "meta/llama-2-7b-chat",
+    "text-davinci-002": "meta/llama-2-7b-chat",
+    "text-curie-001": "meta/llama-2-7b-chat",
+    "text-babbage-001": "meta/llama-2-7b-chat",
+    "text-ada-001": "meta/llama-2-7b-chat"
+  },
+  "default_model": "meta/llama-2-7b-chat",
+  "model_configs": {
+    "meta/llama-2-7b-chat": {
+      "max_tokens": 4096,
+      "temperature_range": [0.1, 2.0],
+      "supports_streaming": true
+    },
+    "meta/llama-2-70b-chat": {
+      "max_tokens": 4096,
+      "temperature_range": [0.1, 2.0],
+      "supports_streaming": true
+    }
+  }
+}
