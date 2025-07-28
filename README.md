@@ -1,74 +1,76 @@
-# OpenAI to Replicate Proxy
+# OpenAI to Replicate Proxy - Cloudflare Worker
 
-A proxy server that translates OpenAI API calls to use Replicate's SDK instead. This allows you to use OpenAI-compatible clients while leveraging Replicate's models.
-
-## Features
-
-- **OpenAI API Compatibility**: Supports `/v1/chat/completions`, `/v1/completions`, and `/v1/models` endpoints
-- **Lightweight**: Built with Node.js built-in HTTP module (no Express dependency)
-- **Model Mapping**: Automatically maps OpenAI models to equivalent Replicate models
-- **Streaming Support**: Handles both regular and streaming responses
-- **API Key Authentication**: Secure access with Bearer token authentication
-- **Error Handling**: Proper error responses in OpenAI format
+This is a serverless implementation of the OpenAI to Replicate proxy using Cloudflare Workers. It provides the same functionality as the Node.js version but runs on Cloudflare's edge network for global distribution and automatic scaling.
 
 ## Setup
 
-1. **Install dependencies**:
+### Prerequisites
+
+1. **Cloudflare Account**: Sign up at https://cloudflare.com
+2. **Wrangler CLI**: Install the Cloudflare Workers CLI
+   ```bash
+   npm install -g wrangler
+   ```
+3. **Replicate API Token**: Get from https://replicate.com/account/api-tokens
+
+### Installation
+
+1. **Navigate to worker directory**:
+   ```bash
+   cd worker
+   ```
+
+2. **Install dependencies**:
    ```bash
    npm install
    ```
 
-2. **Set up environment variables**:
+3. **Login to Cloudflare**:
    ```bash
-   cp .env.example .env
+   wrangler login
    ```
 
-   Edit `.env` and add your configuration:
-   ```
-   REPLICATE_API_TOKEN=your_replicate_api_token_here
-   PROXY_API_KEY=your_secure_proxy_api_key_here
-   ```
-
-   - Get your Replicate API token from: https://replicate.com/account/api-tokens
-   - Generate a secure API key for your proxy:
-     ```bash
-     openssl rand -hex 32
-     ```
-
-3. **Start the server**:
-
-   **Option A: Local Development**
+4. **Set environment variables**:
    ```bash
-   npm start
+   # Set your Replicate API token
+   wrangler secret put REPLICATE_API_TOKEN
+   
+   # Generate and set a secure proxy API key
+   openssl rand -hex 32
+   wrangler secret put PROXY_API_KEY
    ```
 
-   Or for development with auto-reload:
+### Deployment
+
+1. **Deploy to staging**:
+   ```bash
+   npm run deploy:staging
+   ```
+
+2. **Deploy to production**:
+   ```bash
+   npm run deploy:production
+   ```
+
+3. **Test locally**:
    ```bash
    npm run dev
    ```
 
-   **Option B: Docker**
-   ```bash
-   # Build and run with Docker
-   docker build -t openai-replicate-proxy .
-   docker run -p 3000:3000 --env-file .env openai-replicate-proxy
-   ```
-
-   **Option C: Docker Compose**
-   ```bash
-   # Run with docker-compose
-   docker-compose up -d
-   ```
-
 ## Usage
 
-The proxy runs on `http://localhost:3000` by default. You can use any OpenAI-compatible client by pointing it to your proxy server.
+Once deployed, your worker will be available at:
+- Production: `https://openai-replicate-proxy.your-subdomain.workers.dev`
+- Staging: `https://openai-replicate-proxy-staging.your-subdomain.workers.dev`
 
-### Example with curl
+### Example Usage
 
 ```bash
+# Test the health endpoint
+curl https://your-worker-url.workers.dev/health
+
 # Chat completions
-curl -X POST http://localhost:3000/v1/chat/completions \
+curl -X POST https://your-worker-url.workers.dev/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your_proxy_api_key_here" \
   -d '{
@@ -79,134 +81,130 @@ curl -X POST http://localhost:3000/v1/chat/completions \
     "max_tokens": 100
   }'
 
-# Legacy completions
-curl -X POST http://localhost:3000/v1/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_proxy_api_key_here" \
-  -d '{
-    "model": "text-davinci-003",
-    "prompt": "Hello, how are you?",
-    "max_tokens": 100
-  }'
-
-# List available models
-curl http://localhost:3000/v1/models
+# List models
+curl https://your-worker-url.workers.dev/v1/models \
+  -H "Authorization: Bearer your_proxy_api_key_here"
 ```
 
-### Example with OpenAI Python client
+### Python Client Example
 
 ```python
 import openai
 
-# Point the client to your proxy
-openai.api_base = "http://localhost:3000/v1"
-openai.api_key = "your_proxy_api_key_here"  # Use your proxy API key
+# Point to your Cloudflare Worker
+openai.api_base = "https://your-worker-url.workers.dev/v1"
+openai.api_key = "your_proxy_api_key_here"
 
 response = openai.ChatCompletion.create(
     model="gpt-3.5-turbo",
     messages=[
-        {"role": "user", "content": "Hello, how are you?"}
+        {"role": "user", "content": "Hello from Cloudflare Workers!"}
     ]
 )
 
 print(response.choices[0].message.content)
 ```
 
-## Model Configuration
+## Configuration
 
-The proxy uses an external `models.json` file for model mappings and configuration. You can customize this file to:
+### Environment Variables
 
-- Add new model mappings
-- Change default models
-- Configure model-specific settings
+Set these using `wrangler secret put`:
 
-### Current Model Mappings
+- `REPLICATE_API_TOKEN` - Your Replicate API token (required)
+- `PROXY_API_KEY` - API key for proxy authentication (required)
+
+### Model Mappings
+
+The worker includes the same model mappings as the Node.js version:
 
 | OpenAI Model | Replicate Model |
 |--------------|------------------|
 | gpt-3.5-turbo | meta/llama-2-7b-chat |
-| gpt-3.5-turbo-16k | meta/llama-2-7b-chat |
 | gpt-4 | meta/llama-2-70b-chat |
 | gpt-4-turbo | meta/llama-2-70b-chat |
-| gpt-4-32k | meta/llama-2-70b-chat |
-| text-davinci-003 | meta/llama-2-7b-chat |
-| text-davinci-002 | meta/llama-2-7b-chat |
 
-### Customizing Models
-
-Edit `models.json` to add or modify model mappings:
-
-```json
-{
-  "mappings": {
-    "gpt-3.5-turbo": "meta/llama-2-7b-chat",
-    "custom-model": "your/custom-replicate-model"
-  },
-  "default_model": "meta/llama-2-7b-chat",
-  "model_configs": {
-    "meta/llama-2-7b-chat": {
-      "max_tokens": 4096,
-      "temperature_range": [0.1, 2.0],
-      "supports_streaming": true
-    }
-  }
-}
+To modify model mappings, edit the `MODEL_MAPPINGS` object in `index.js`.
 
 ## API Endpoints
 
 - `POST /v1/chat/completions` - Chat completions (supports streaming)
 - `POST /v1/completions` - Text completions (legacy)
 - `GET /v1/models` - List available models
-- `GET /health` - Health check
+- `GET /health` - Health check (no auth required)
 
-## Configuration
+## Development
 
-Environment variables:
+### Local Development
 
-- `REPLICATE_API_TOKEN` - Your Replicate API token (required)
-- `PROXY_API_KEY` - API key for proxy authentication (required, generate with `openssl rand -hex 32`)
-- `PORT` - Server port (optional, defaults to 3000)
+```bash
+# Start local development server
+npm run dev
 
-## Docker Deployment
-
-The proxy includes Docker support for easy containerization and deployment.
-
-### Docker Files
-
-- `Dockerfile` - Multi-stage build with Node.js Alpine image
-- `docker-compose.yml` - Complete deployment setup
-- `.dockerignore` - Optimized build context
-
-### Docker Features
-
-- **Security**: Runs as non-root user
-- **Health Checks**: Built-in health monitoring
-- **Production Ready**: Optimized for production deployment
-- **Environment Variables**: Full support for configuration via environment
+# Test locally
+curl http://localhost:8787/health
+```
 
 ### Deployment Commands
 
 ```bash
-# Build the image
-docker build -t openai-replicate-proxy .
+# Deploy to staging
+npm run deploy:staging
 
-# Run with environment file
-docker run -p 3000:3000 --env-file .env openai-replicate-proxy
-
-# Or use docker-compose for easier management
-docker-compose up -d
+# Deploy to production  
+npm run deploy:production
 
 # View logs
-docker-compose logs -f
+wrangler tail
 
-# Stop the service
-docker-compose down
+# View worker analytics
+wrangler metrics
 ```
 
-## Notes
+## Advantages of Cloudflare Worker Version
 
-- The proxy converts OpenAI's message format to Replicate's prompt format
-- Streaming responses are supported but simplified (single chunk response)
-- Usage statistics in responses are currently placeholder values
-- You can modify the `models.json` file to use different Replicate models
-- Docker deployment includes health checks and runs as non-root user for security
+1. **Global Edge Network**: Deployed to 300+ locations worldwide
+2. **Zero Cold Starts**: Instant execution with V8 isolates
+3. **Automatic Scaling**: Handles millions of requests automatically
+4. **Cost Effective**: Pay only for what you use
+5. **Built-in Security**: DDoS protection and security features
+6. **Easy Deployment**: Single command deployment
+7. **Environment Management**: Staging and production environments
+
+## Limitations
+
+1. **CPU Time Limit**: 50ms for free tier, 30 seconds for paid
+2. **Memory Limit**: 128MB per request
+3. **Request Size**: 100MB maximum request size
+4. **Streaming**: Simplified streaming implementation due to Worker limitations
+
+## Monitoring
+
+Cloudflare provides built-in monitoring:
+
+- **Analytics**: Request volume, errors, latency
+- **Logs**: Real-time log streaming with `wrangler tail`
+- **Metrics**: Performance metrics with `wrangler metrics`
+- **Alerts**: Set up alerts for errors or performance issues
+
+## Custom Domains
+
+To use a custom domain:
+
+1. Add your domain to Cloudflare
+2. Create a route in the Cloudflare dashboard
+3. Point the route to your worker
+
+## Security
+
+- Environment variables are encrypted and secure
+- API key authentication required for all endpoints
+- CORS headers configured for cross-origin requests
+- Built-in DDoS protection from Cloudflare
+
+## Support
+
+For issues specific to the Cloudflare Worker implementation:
+1. Check Cloudflare Workers documentation
+2. Use `wrangler tail` for debugging
+3. Monitor worker analytics for performance issues

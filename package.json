@@ -1,17 +1,22 @@
 {
-  "name": "openai-replicate-proxy",
+  "name": "openai-replicate-proxy-worker",
   "version": "1.0.0",
-  "description": "A proxy server that translates OpenAI API calls to Replicate SDK",
+  "description": "Cloudflare Worker implementation of OpenAI to Replicate proxy",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
-  },
-  "dependencies": {
-    "dotenv": "^16.3.1",
-    "replicate": "^0.25.1"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
-  }
+    "wrangler": "^3.0.0"
+  },
+  "keywords": [
+    "cloudflare-worker",
+    "openai",
+    "replicate",
+    "proxy",
+    "serverless"
+  ]
 }
