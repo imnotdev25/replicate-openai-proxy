@@ -38,8 +38,20 @@ function parseRequestBody(req) {
             try {
                 resolve(body ? JSON.parse(body) : {});
             } catch (error) {
+                console.error('JSON parsing error:', {
+                    error: error.message,
+                    body: body.substring(0, 500), // Log first 500 chars for debugging
+                    timestamp: new Date().toISOString()
+                });
                 reject(error);
             }
+        });
+        req.on('error', (error) => {
+            console.error('Request body reading error:', {
+                error: error.message,
+                timestamp: new Date().toISOString()
+            });
+            reject(error);
         });
     });
 }
@@ -72,8 +84,13 @@ function sendStreamingResponse(res, data) {
 function authenticateApiKey(req) {
     const authHeader = req.headers.authorization;
     const expectedApiKey = process.env.PROXY_API_KEY;
+    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 
     if (!expectedApiKey) {
+        console.error('Authentication error: Proxy API key not configured', {
+            timestamp: new Date().toISOString(),
+            clientIP
+        });
         return {
             success: false,
             error: {
@@ -86,6 +103,11 @@ function authenticateApiKey(req) {
     }
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        console.warn('Authentication failed: Missing or invalid authorization header', {
+            authHeader: authHeader ? 'present but invalid format' : 'missing',
+            clientIP,
+            timestamp: new Date().toISOString()
+        });
         return {
             success: false,
             error: {
@@ -100,6 +122,11 @@ function authenticateApiKey(req) {
     const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     if (apiKey !== expectedApiKey) {
+        console.warn('Authentication failed: Invalid API key', {
+            providedKeyLength: apiKey.length,
+            clientIP,
+            timestamp: new Date().toISOString()
+        });
         return {
             success: false,
             error: {
@@ -111,6 +138,10 @@ function authenticateApiKey(req) {
         };
     }
 
+    console.log('Authentication successful', {
+        clientIP,
+        timestamp: new Date().toISOString()
+    });
     return { success: true };
 }
 
@@ -159,9 +190,37 @@ function formatAsOpenAIResponse(replicateOutput, model, usage = {}) {
 
 // Chat completions handler
 async function handleChatCompletions(req, res) {
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
     try {
+        console.log('Chat completions request started:', {
+            requestId,
+            clientIP,
+            timestamp: new Date().toISOString()
+        });
+
         const body = await parseRequestBody(req);
         const { model, messages, max_tokens = 500, temperature = 0.7, stream = false } = body;
+
+        // Validate required fields
+        if (!model || !messages) {
+            console.warn('Chat completions validation error:', {
+                requestId,
+                error: 'Missing required fields',
+                hasModel: !!model,
+                hasMessages: !!messages,
+                timestamp: new Date().toISOString()
+            });
+            sendJsonResponse(res, 400, {
+                error: {
+                    message: 'Missing required fields: model and messages are required',
+                    type: 'invalid_request_error',
+                    code: 'missing_required_fields'
+                }
+            });
+            return;
+        }
 
         // Map OpenAI model to Replicate model
         const replicateModel = MODEL_MAPPINGS[model] || DEFAULT_MODEL;
@@ -169,11 +228,23 @@ async function handleChatCompletions(req, res) {
         // Convert messages to prompt format
         const prompt = convertMessagesToPrompt(messages);
 
-        console.log(`Using Replicate model: ${replicateModel}`);
-        console.log(`Prompt: ${prompt.substring(0, 200)}...`);
+        console.log('Chat completions processing:', {
+            requestId,
+            model,
+            replicateModel,
+            messageCount: messages.length,
+            maxTokens: max_tokens,
+            temperature,
+            stream,
+            promptLength: prompt.length,
+            timestamp: new Date().toISOString()
+        });
+
+        const startTime = Date.now();
 
         if (stream) {
             // Handle streaming response
+            console.log('Starting streaming response:', { requestId });
             const output = await replicate.run(replicateModel, {
                 input: {
                     prompt: prompt,
@@ -198,6 +269,13 @@ async function handleChatCompletions(req, res) {
                 }]
             };
 
+            console.log('Chat completions streaming completed:', {
+                requestId,
+                responseLength: content.length,
+                processingTime: Date.now() - startTime,
+                timestamp: new Date().toISOString()
+            });
+
             sendStreamingResponse(res, streamResponse);
         } else {
             // Handle regular response
@@ -210,32 +288,95 @@ async function handleChatCompletions(req, res) {
             });
 
             const response = formatAsOpenAIResponse(output, model);
+
+            console.log('Chat completions completed successfully:', {
+                requestId,
+                responseLength: response.choices[0]?.message?.content?.length || 0,
+                processingTime: Date.now() - startTime,
+                timestamp: new Date().toISOString()
+            });
+
             sendJsonResponse(res, 200, response);
         }
 
     } catch (error) {
-        console.error('Error calling Replicate:', error);
-        sendJsonResponse(res, 500, {
-            error: {
-                message: 'Internal server error',
-                type: 'server_error',
-                code: 'internal_error'
-            }
+        console.error('Chat completions error:', {
+            requestId,
+            error: error.message,
+            stack: error.stack,
+            clientIP,
+            timestamp: new Date().toISOString()
         });
+
+        // Check if it's a Replicate API error
+        if (error.message && error.message.includes('Replicate')) {
+            sendJsonResponse(res, 502, {
+                error: {
+                    message: 'Replicate API error',
+                    type: 'upstream_error',
+                    code: 'replicate_error'
+                }
+            });
+        } else {
+            sendJsonResponse(res, 500, {
+                error: {
+                    message: 'Internal server error',
+                    type: 'server_error',
+                    code: 'internal_error'
+                }
+            });
+        }
     }
 }
 
 // Completions handler (legacy)
 async function handleCompletions(req, res) {
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
     try {
+        console.log('Completions request started:', {
+            requestId,
+            clientIP,
+            timestamp: new Date().toISOString()
+        });
+
         const body = await parseRequestBody(req);
         const { model, prompt, max_tokens = 500, temperature = 0.7 } = body;
+
+        // Validate required fields
+        if (!model || !prompt) {
+            console.warn('Completions validation error:', {
+                requestId,
+                error: 'Missing required fields',
+                hasModel: !!model,
+                hasPrompt: !!prompt,
+                timestamp: new Date().toISOString()
+            });
+            sendJsonResponse(res, 400, {
+                error: {
+                    message: 'Missing required fields: model and prompt are required',
+                    type: 'invalid_request_error',
+                    code: 'missing_required_fields'
+                }
+            });
+            return;
+        }
 
         // Map OpenAI model to Replicate model
         const replicateModel = MODEL_MAPPINGS[model] || DEFAULT_MODEL;
 
-        console.log(`Using Replicate model: ${replicateModel}`);
-        console.log(`Prompt: ${prompt.substring(0, 200)}...`);
+        console.log('Completions processing:', {
+            requestId,
+            model,
+            replicateModel,
+            promptLength: prompt.length,
+            maxTokens: max_tokens,
+            temperature,
+            timestamp: new Date().toISOString()
+        });
+
+        const startTime = Date.now();
 
         const output = await replicate.run(replicateModel, {
             input: {
@@ -264,17 +405,42 @@ async function handleCompletions(req, res) {
             }
         };
 
+        console.log('Completions completed successfully:', {
+            requestId,
+            responseLength: content.length,
+            processingTime: Date.now() - startTime,
+            timestamp: new Date().toISOString()
+        });
+
         sendJsonResponse(res, 200, response);
 
     } catch (error) {
-        console.error('Error calling Replicate:', error);
-        sendJsonResponse(res, 500, {
-            error: {
-                message: 'Internal server error',
-                type: 'server_error',
-                code: 'internal_error'
-            }
+        console.error('Completions error:', {
+            requestId,
+            error: error.message,
+            stack: error.stack,
+            clientIP,
+            timestamp: new Date().toISOString()
         });
+
+        // Check if it's a Replicate API error
+        if (error.message && error.message.includes('Replicate')) {
+            sendJsonResponse(res, 502, {
+                error: {
+                    message: 'Replicate API error',
+                    type: 'upstream_error',
+                    code: 'replicate_error'
+                }
+            });
+        } else {
+            sendJsonResponse(res, 500, {
+                error: {
+                    message: 'Internal server error',
+                    type: 'server_error',
+                    code: 'internal_error'
+                }
+            });
+        }
     }
 }
 
@@ -304,12 +470,26 @@ function handleHealth(req, res) {
 
 // Main request handler
 function handleRequest(req, res) {
-    const parsedUrl = url.parse(req.url, true);
+    const requestId = `req-${Date.now()}-${Math.random().toString(36)}`;
+    const parsedUrl = new URL(req.url, `http://localhost:${PORT}`);
     const pathname = parsedUrl.pathname;
     const method = req.method;
+    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'] || 'unknown';
+
+    // Log all incoming requests
+    console.log('Incoming request:', {
+        requestId,
+        method,
+        pathname,
+        clientIP,
+        userAgent,
+        timestamp: new Date().toISOString()
+    });
 
     // Handle CORS preflight requests
     if (method === 'OPTIONS') {
+        console.log('CORS preflight request:', { requestId, pathname });
         res.writeHead(200, {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -321,6 +501,7 @@ function handleRequest(req, res) {
 
     // Health check endpoint (no auth required)
     if (pathname === '/health' && method === 'GET') {
+        console.log('Health check request:', { requestId });
         handleHealth(req, res);
         return;
     }
@@ -329,18 +510,35 @@ function handleRequest(req, res) {
     if (pathname.startsWith('/v1/')) {
         const authResult = authenticateApiKey(req);
         if (!authResult.success) {
+            console.warn('Authentication failed for API endpoint:', {
+                requestId,
+                pathname,
+                statusCode: authResult.statusCode,
+                clientIP,
+                timestamp: new Date().toISOString()
+            });
             sendJsonResponse(res, authResult.statusCode, { error: authResult.error });
             return;
         }
 
         // Route to appropriate handler
         if (pathname === '/v1/chat/completions' && method === 'POST') {
+            console.log('Routing to chat completions handler:', { requestId });
             handleChatCompletions(req, res);
         } else if (pathname === '/v1/completions' && method === 'POST') {
+            console.log('Routing to completions handler:', { requestId });
             handleCompletions(req, res);
         } else if (pathname === '/v1/models' && method === 'GET') {
+            console.log('Routing to models handler:', { requestId });
             handleModels(req, res);
         } else {
+            console.warn('Unknown API endpoint:', {
+                requestId,
+                pathname,
+                method,
+                clientIP,
+                timestamp: new Date().toISOString()
+            });
             sendJsonResponse(res, 404, {
                 error: {
                     message: 'Not found',
@@ -351,6 +549,13 @@ function handleRequest(req, res) {
         }
     } else {
         // Unknown endpoint
+        console.warn('Request to unknown endpoint:', {
+            requestId,
+            pathname,
+            method,
+            clientIP,
+            timestamp: new Date().toISOString()
+        });
         sendJsonResponse(res, 404, {
             error: {
                 message: 'Not found',
