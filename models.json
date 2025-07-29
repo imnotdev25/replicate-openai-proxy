@@ -1,16 +1,27 @@
 {
   "mappings": {
-    "gpt-3.5-turbo": "meta/llama-2-7b-chat",
-    "gpt-3.5-turbo-16k": "meta/llama-2-7b-chat",
-    "gpt-4": "meta/llama-2-70b-chat",
-    "gpt-4-turbo": "meta/llama-2-70b-chat",
-    "gpt-4-turbo-preview": "meta/llama-2-70b-chat",
-    "gpt-4-32k": "meta/llama-2-70b-chat",
-    "text-davinci-003": "meta/llama-2-7b-chat",
-    "text-davinci-002": "meta/llama-2-7b-chat",
     "text-curie-001": "meta/llama-2-7b-chat",
     "text-babbage-001": "meta/llama-2-7b-chat",
-    "text-ada-001": "meta/llama-2-7b-chat"
+    "text-ada-001": "meta/llama-2-7b-chat",
+    "claude-4-sonnet":"anthropic/claude-4-sonnet",
+    "deepseek-r1":"deepseek-ai/deepseek-r1",
+    "o4-mini":"openai/o4-mini",
+    "gpt-4.1-nano":"openai/gpt-4.1-nano",
+    "gpt-4.1-mini":"openai/gpt-4.1-mini",
+    "gpt-4.1":"openai/gpt-4.1",
+    "gpt-4o":"openai/gpt-4o",
+    "gpt-4o-mini": "openai/gpt-4o-mini",
+    "o1":"openai/o1",
+    "o1-mini": "openai/o1-mini",
+    "o4-mini":"openai/o4-mini",
+    "deepseek-v3":"deepseek-ai/deepseek-v3",
+    "claude-3.7-sonnet":"anthropic/claude-3.7-sonnet",
+    "claude-3.5-haiku":"anthropic/claude-3.5-haiku",
+    "claude-3.5-sonnet":"anthropic/claude-3.5-sonnet",
+    "llama-3.1-405b-instruct":"meta/meta-llama-3.1-405b-instruct",
+    "llama-3-70b-instruct":"meta/meta-llama-3-70b-instruct",
+    "llama-3-8b-instruct":"meta/meta-llama-3-8b-instruct"
+
   },
   "default_model": "meta/llama-2-7b-chat",
   "model_configs": {

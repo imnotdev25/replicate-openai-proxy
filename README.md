@@ -266,6 +266,7 @@ Edit `models.json` to add or modify model mappings:
     }
   }
 }
+```
 
 ## API Endpoints
 
@@ -325,27 +326,6 @@ docker-compose logs -f
 docker-compose down
 ```
 
-### 3. Cloudflare Worker (Serverless)
-
-For serverless deployment with global edge distribution, see the `worker/` directory.
-
-**Features:**
-- **Global Distribution**: Deployed to 300+ locations worldwide
-- **Auto-scaling**: Handles traffic spikes automatically
-- **Zero Cold Starts**: Instant execution with V8 isolates
-- **Cost Effective**: Pay only for what you use
-
-**Quick Deploy:**
-```bash
-cd worker
-npm install
-wrangler login
-wrangler secret put REPLICATE_API_TOKEN
-wrangler secret put PROXY_API_KEY
-npm run deploy:production
-```
-
-See `worker/README.md` for detailed instructions.
 
 ## Notes
 
