@@ -6,8 +6,12 @@ compatibility_flags = ["nodejs_compat"]
 [env.production]
 name = "openai-replicate-proxy"
 
+
 [env.staging]
 name = "openai-replicate-proxy-staging"
+
+[observability.logs]
+enabled = true
 
 # Environment variables (set these using wrangler secret put)
 # REPLICATE_API_TOKEN - Your Replicate API token
