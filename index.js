@@ -150,16 +150,20 @@ function parseRequestBody(req) {
     });
 }
 
+function setCorsHeaders(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*'); // allow all origins
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true'); // Uncomment only if you need cookies/auth
+}
+
 // Helper function to send JSON response
-function sendJsonResponse(res, statusCode, data) {
-    res.writeHead(statusCode, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-    });
+function sendJsonResponse(req, res, statusCode, data) {
+    setCorsHeaders(req, res);
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(data));
 }
+
 
 // Helper function to send streaming response
 function sendStreamingResponse(res, data) {
@@ -329,7 +333,7 @@ async function handleChatCompletions(req, res) {
                 timestamp: new Date().toISOString()
             });
 
-            sendJsonResponse(res, 429, {
+            sendJsonResponse(req, res, 429, {
                 error: {
                     message: 'Rate limit exceeded. Please try again later.',
                     type: 'rate_limit_error',
@@ -342,7 +346,7 @@ async function handleChatCompletions(req, res) {
 
         try {
             const body = await parseRequestBody(req);
-            const { model, messages, max_tokens = 500, temperature = 0.7, stream = false } = body;
+            const { model, messages, max_tokens , temperature = 0.7, stream = false } = body;
 
             // Validate required fields
             if (!model || !messages) {
@@ -354,7 +358,7 @@ async function handleChatCompletions(req, res) {
                     timestamp: new Date().toISOString()
                 });
 
-                sendJsonResponse(res, 400, {
+                sendJsonResponse(req, res, 400, {
                     error: {
                         message: 'Missing required fields: model and messages are required',
                         type: 'invalid_request_error',
@@ -375,7 +379,7 @@ async function handleChatCompletions(req, res) {
                 model,
                 replicateModel,
                 messageCount: messages.length,
-                maxTokens: max_tokens,
+                maxTokens: max_tokens ? max_tokens : 'not provided',
                 temperature,
                 stream,
                 promptLength: prompt.length,
@@ -390,7 +394,7 @@ async function handleChatCompletions(req, res) {
                 const output = await replicate.run(replicateModel, {
                     input: {
                         prompt: prompt,
-                        max_new_tokens: max_tokens,
+                        max_new_tokens: max_tokens ? max_tokens : undefined,
                         temperature: temperature
                     }
                 });
@@ -445,7 +449,7 @@ async function handleChatCompletions(req, res) {
                     timestamp: new Date().toISOString()
                 });
 
-                sendJsonResponse(res, 200, response);
+                sendJsonResponse(req, res, 200, response);
             }
 
         } catch (error) {
@@ -463,7 +467,7 @@ async function handleChatCompletions(req, res) {
 
             // Check if it's a Replicate API error
             if (error.message && error.message.includes('Replicate')) {
-                sendJsonResponse(res, 502, {
+                sendJsonResponse(req, res, 502, {
                     error: {
                         message: 'Replicate API error',
                         type: 'upstream_error',
@@ -471,7 +475,7 @@ async function handleChatCompletions(req, res) {
                     }
                 });
             } else {
-                sendJsonResponse(res, 500, {
+                sendJsonResponse(req, res, 500, {
                     error: {
                         message: 'Internal server error',
                         type: 'server_error',
@@ -514,7 +518,7 @@ async function handleCompletions(req, res) {
                 timestamp: new Date().toISOString()
             });
 
-            sendJsonResponse(res, 429, {
+            sendJsonResponse(req, res, 429, {
                 error: {
                     message: 'Rate limit exceeded. Please try again later.',
                     type: 'rate_limit_error',
@@ -527,7 +531,7 @@ async function handleCompletions(req, res) {
 
         try {
             const body = await parseRequestBody(req);
-            const { model, prompt, max_tokens = 500, temperature = 0.7 } = body;
+            const { model, prompt, max_tokens, temperature = 0.7 } = body;
 
             // Validate required fields
             if (!model || !prompt) {
@@ -539,7 +543,7 @@ async function handleCompletions(req, res) {
                     timestamp: new Date().toISOString()
                 });
 
-                sendJsonResponse(res, 400, {
+                sendJsonResponse(req, res, 400, {
                     error: {
                         message: 'Missing required fields: model and prompt are required',
                         type: 'invalid_request_error',
@@ -557,7 +561,8 @@ async function handleCompletions(req, res) {
                 model,
                 replicateModel,
                 promptLength: prompt.length,
-                maxTokens: max_tokens,
+                // Add Max Tokens param if provided in request
+                maxTokens: max_tokens ? max_tokens : 'not provided',
                 temperature,
                 timestamp: new Date().toISOString()
             });
@@ -567,7 +572,8 @@ async function handleCompletions(req, res) {
             const output = await replicate.run(replicateModel, {
                 input: {
                     prompt: prompt,
-                    max_new_tokens: max_tokens,
+                    // Add Max Tokens param if provided in request
+                    max_new_tokens: max_tokens ? max_tokens : undefined,
                     temperature: temperature
                 }
             });
@@ -602,7 +608,7 @@ async function handleCompletions(req, res) {
                 timestamp: new Date().toISOString()
             });
 
-            sendJsonResponse(res, 200, response);
+            sendJsonResponse(req, res, 200, response);
 
         } catch (error) {
             const processingTime = Date.now() - startTime;
@@ -619,7 +625,7 @@ async function handleCompletions(req, res) {
 
             // Check if it's a Replicate API error
             if (error.message && error.message.includes('Replicate')) {
-                sendJsonResponse(res, 502, {
+                sendJsonResponse(req, res, 502, {
                     error: {
                         message: 'Replicate API error',
                         type: 'upstream_error',
@@ -627,7 +633,7 @@ async function handleCompletions(req, res) {
                     }
                 });
             } else {
-                sendJsonResponse(res, 500, {
+                sendJsonResponse(req, res, 500, {
                     error: {
                         message: 'Internal server error',
                         type: 'server_error',
@@ -652,7 +658,7 @@ function handleModels(req, res) {
         owned_by: 'replicate-proxy'
     }));
 
-    sendJsonResponse(res, 200, {
+    sendJsonResponse(req, res, 200, {
         object: 'list',
         data: models
     });
@@ -662,7 +668,7 @@ function handleModels(req, res) {
 function handleHealth(req, res) {
     const rateLimiterStats = globalRateLimiter.getStats();
 
-    sendJsonResponse(res, 200, {
+    sendJsonResponse(req, res, 200, {
         status: 'healthy',
         service: 'OpenAI to Replicate Proxy',
         timestamp: new Date().toISOString(),
@@ -688,7 +694,7 @@ function handleHealth(req, res) {
 function handleStats(req, res) {
     const rateLimiterStats = globalRateLimiter.getStats();
 
-    sendJsonResponse(res, 200, {
+    sendJsonResponse(req, res, 200, {
         timestamp: new Date().toISOString(),
         rateLimiter: rateLimiterStats,
         metrics: metrics,
@@ -722,11 +728,8 @@ function handleRequest(req, res) {
     // Handle CORS preflight requests
     if (method === 'OPTIONS') {
         console.log('CORS preflight request:', { requestId, pathname });
-        res.writeHead(200, {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-        });
+        setCorsHeaders(req, res);
+        res.writeHead(200);
         res.end();
         return;
     }
@@ -756,7 +759,7 @@ function handleRequest(req, res) {
                 clientIP,
                 timestamp: new Date().toISOString()
             });
-            sendJsonResponse(res, authResult.statusCode, { error: authResult.error });
+            sendJsonResponse(req, res, authResult.statusCode, { error: authResult.error });
             return;
         }
 
@@ -770,7 +773,7 @@ function handleRequest(req, res) {
                     stack: error.stack,
                     timestamp: new Date().toISOString()
                 });
-                sendJsonResponse(res, 500, {
+                sendJsonResponse(req, res, 500, {
                     error: {
                         message: 'Internal server error',
                         type: 'server_error',
@@ -787,7 +790,7 @@ function handleRequest(req, res) {
                     stack: error.stack,
                     timestamp: new Date().toISOString()
                 });
-                sendJsonResponse(res, 500, {
+                sendJsonResponse(req, res, 500, {
                     error: {
                         message: 'Internal server error',
                         type: 'server_error',
@@ -806,7 +809,7 @@ function handleRequest(req, res) {
                 clientIP,
                 timestamp: new Date().toISOString()
             });
-            sendJsonResponse(res, 404, {
+            sendJsonResponse(req, res, 404, {
                 error: {
                     message: 'Not found',
                     type: 'invalid_request_error',
@@ -823,7 +826,7 @@ function handleRequest(req, res) {
             clientIP,
             timestamp: new Date().toISOString()
         });
-        sendJsonResponse(res, 404, {
+        sendJsonResponse(req, res, 404, {
             error: {
                 message: 'Not found',
                 type: 'invalid_request_error',
