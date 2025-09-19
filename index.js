@@ -124,8 +124,8 @@ const DEFAULT_MODEL = 'meta/meta-llama-3-8b-instruct';
 function setCorsHeaders() {
     return {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE, PATCH',
+        'Access-Control-Allow-Headers': '*',
         'Access-Control-Allow-Credentials': 'true',
         'Access-Control-Max-Age': '86400'
     };
