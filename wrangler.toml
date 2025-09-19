@@ -6,7 +6,6 @@ compatibility_flags = ["nodejs_compat"]
 [env.production]
 name = "openai-replicate-proxy"
 
-
 [env.staging]
 name = "openai-replicate-proxy-staging"
 
