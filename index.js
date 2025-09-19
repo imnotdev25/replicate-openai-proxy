@@ -92,23 +92,30 @@ const metrics = {
 
 // Model mappings configuration (from Node.js script)
 const MODEL_MAPPINGS = {
-    "claude-4-sonnet": "anthropic/claude-4-sonnet",
-    "deepseek-r1": "deepseek-ai/deepseek-r1",
-    "gpt-4.1-nano": "openai/gpt-4.1-nano",
-    "gpt-4.1-mini": "openai/gpt-4.1-mini",
-    "gpt-4.1": "openai/gpt-4.1",
-    "gpt-4o": "openai/gpt-4o",
+    "deepseek-r1":"deepseek-ai/deepseek-r1",
+    "gpt-4.1-nano":"openai/gpt-4.1-nano",
+    "gpt-4.1-mini":"openai/gpt-4.1-mini",
+    "gpt-4.1":"openai/gpt-4.1",
+    "gpt-4o":"openai/gpt-4o",
     "gpt-4o-mini": "openai/gpt-4o-mini",
-    "o1": "openai/o1",
+    "o1":"openai/o1",
     "o1-mini": "openai/o1-mini",
-    "o4-mini": "openai/o4-mini",
-    "deepseek-v3": "deepseek-ai/deepseek-v3",
-    "claude-3.7-sonnet": "anthropic/claude-3.7-sonnet",
-    "claude-3.5-haiku": "anthropic/claude-3.5-haiku",
-    "claude-3.5-sonnet": "anthropic/claude-3.5-sonnet",
-    "llama-3.1-405b-instruct": "meta/meta-llama-3.1-405b-instruct",
-    "llama-3-70b-instruct": "meta/meta-llama-3-70b-instruct",
-    "llama-3-8b-instruct": "meta/meta-llama-3-8b-instruct"
+    "o4-mini":"openai/o4-mini",
+    "gpt-5-structured": "openai/gpt-5-structured",
+    "gpt-5-mini": "openai/gpt-5-mini",
+    "gpt-5-nano": "openai/gpt-5-nano",
+    "gpt-5": "openai/gpt-5",
+    "gpt-oss-20b": "openai/gpt-oss-20b",
+    "gpt-oss-120b": "openai/gpt-oss-120b",
+    "deepseek-v3.1": "deepseek-ai/deepseek-v3.1",
+    "deepseek-v3":"deepseek-ai/deepseek-v3",
+    "claude-3.7-sonnet":"anthropic/claude-3.7-sonnet",
+    "claude-3.5-haiku":"anthropic/claude-3.5-haiku",
+    "claude-3.5-sonnet":"anthropic/claude-3.5-sonnet",
+    "claude-4-sonnet":"anthropic/claude-4-sonnet",
+    "llama-3.1-405b-instruct":"meta/meta-llama-3.1-405b-instruct",
+    "llama-3-70b-instruct":"meta/meta-llama-3-70b-instruct",
+    "llama-3-8b-instruct":"meta/meta-llama-3-8b-instruct"
 };
 
 const DEFAULT_MODEL = 'meta/meta-llama-3-8b-instruct';
