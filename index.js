@@ -1,3 +1,6 @@
+// Cloudflare Worker implementation of OpenAI to Replicate proxy
+// Converted from Node.js script with proper CORS handling
+
 // Rate limiting configuration
 const GLOBAL_RATE_LIMIT = 100; // Max concurrent requests
 const RATE_LIMIT_WINDOW = 60000; // Time window in ms (1 minute)
@@ -120,37 +123,50 @@ const MODEL_MAPPINGS = {
 
 const DEFAULT_MODEL = 'meta/meta-llama-3-8b-instruct';
 
-// Helper function to set CORS headers (fixed)
-function setCorsHeaders() {
-    return {
+// Helper function to set CORS headers (comprehensive fix)
+function setCorsHeaders(request = null) {
+    const headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE, PATCH',
-        'Access-Control-Allow-Headers': '*',
         'Access-Control-Allow-Credentials': 'true',
         'Access-Control-Max-Age': '86400'
     };
+
+    // Handle Access-Control-Allow-Headers more explicitly
+    if (request) {
+        const requestedHeaders = request.headers.get('access-control-request-headers');
+        if (requestedHeaders) {
+            headers['Access-Control-Allow-Headers'] = requestedHeaders;
+        } else {
+            headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, x-stainless-os, x-stainless-lang, x-stainless-package-version, x-stainless-runtime, x-stainless-arch, User-Agent';
+        }
+    } else {
+        headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, x-stainless-os, x-stainless-lang, x-stainless-package-version, x-stainless-runtime, x-stainless-arch, User-Agent';
+    }
+
+    return headers;
 }
 
 // Helper function to send JSON response with proper CORS
-function sendJsonResponse(statusCode, data) {
+function sendJsonResponse(statusCode, data, request = null) {
     return new Response(JSON.stringify(data), {
         status: statusCode,
         headers: {
             'Content-Type': 'application/json',
-            ...setCorsHeaders()
+            ...setCorsHeaders(request)
         }
     });
 }
 
 // Helper function to send streaming response with proper CORS
-function sendStreamingResponse(data) {
+function sendStreamingResponse(data, request = null) {
     return new Response(`data: ${JSON.stringify(data)}\n\ndata: [DONE]\n\n`, {
         status: 200,
         headers: {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
             'Connection': 'keep-alive',
-            ...setCorsHeaders()
+            ...setCorsHeaders(request)
         }
     });
 }
@@ -865,7 +881,7 @@ export default {
             console.log('CORS preflight request:', { requestId, pathname });
             return new Response(null, {
                 status: 204,
-                headers: setCorsHeaders()
+                headers: setCorsHeaders(request)
             });
         }
 
